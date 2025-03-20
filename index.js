@@ -2,9 +2,10 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config()
 const jwt = require('jsonwebtoken');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
 const app = express()
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 5001;
 
 // middleWare 
 app.use(cors());
@@ -33,6 +34,7 @@ async function run() {
     const reveiwCollection = client.db('foodHub').collection('reveiws')
     const cartCollection = client.db('foodHub').collection('carts')
     const userCollection = client.db('foodHub').collection('users')
+    const paymentsCollection = client.db('foodHub').collection('payments')
 
      // jwt related api
      app.post('/jwt', async(req,res)=>{
@@ -57,14 +59,60 @@ async function run() {
       })
      
     }
+     // use verify admin after verifyToken 
+     const verifyAdmin = async (req,res,next) =>{
+      const email = req.decoded.email;
+      const query = {email: email};
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === 'admin';
+      if(!isAdmin){
+        return res.status(403).send({message: 'forbidden access'})
+      }
+      next()
+    }
   
     app.get('/menu',async(req,res)=>{
         const result =  await menuCollection.find().toArray()
         res.send(result)
 
     })
+    app.get('/menu/:id',async(req,res)=>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result = await menuCollection.findOne(query)
+      res.send(result)
+    })
+    app.post('/menu', verifyToken,verifyAdmin,async(req,res)=>{
+      const items = req.body ;
+      const result = await menuCollection.insertOne(items)
+      res.send(result)
+    })
+    app.patch('/menu/:id',async(req,res)=>{
+      const item = req.body;
+      const id = req.params.id;
+      const filter = {_id: new ObjectId(id)}
+      const updatedDoc = {
+        $set:{
+          name:item.name,
+          category:item.category,
+          price: item.price,
+          recipe:item.recipe,
+          image:item.image
+        }
+      }
+      const result = await menuCollection.updateOne(filter,updatedDoc)
+      res.send(result)
+    })
+    app.delete('/menu/:id' , async(req,res) =>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)}
+      const result = await menuCollection.deleteOne(query)
+      res.send(result)
+
+
+    })
     
-    app.get('/reveiws',async(req,res)=>{
+    app.get('/reveiws', verifyToken,verifyAdmin,async(req,res)=>{
         const result = await reveiwCollection.find().toArray()
         res.send(result)
     })
@@ -81,17 +129,7 @@ async function run() {
       const result = await cartCollection.insertOne(cartItem) 
       res.send(result)
     })
-    // use verify admin after verifyToken 
-    const verifyAdmin = async (req,res,next) =>{
-      const email = req.decoded.email;
-      const query = {email: email};
-      const user = await userCollection.findOne(query);
-      const isAdmin = user?.role === 'admin';
-      if(!isAdmin){
-        return res.status(403).send({message: 'forbidden access'})
-      }
-      next()
-    }
+   
     // user related api
   app.get('/users', verifyToken, verifyAdmin, async(req,res)=>{
     const result = await userCollection.find().toArray()
@@ -147,6 +185,34 @@ async function run() {
       const result = await userCollection.deleteOne(query)
       res.send(result)
     })
+    // stripe payment intent
+app.post('/create-payment-intent', async(req,res) =>{
+  const {price} = req.body;
+  const amount = parseInt(price * 100);
+  console.log(amount,'amount inside the intent');
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: amount,
+    currency:'usd',
+    payment_method_types: ['card'],
+    
+  });
+  res.send({
+    clientSecret: paymentIntent.client_secret
+  })
+})
+app.post('/payments',async(req,res)=>{
+  const payment = req.body;
+  const paymentResult = await paymentsCollection.insertOne(payment)
+  // carfully delete each item from the cart
+  console.log( 'payment info',payment);
+  const query = {_id:{
+    $in: payment.cartIds.map(id => new ObjectId(id))
+  }};
+  const deleteResult = await cartCollection.deleteMany(query)
+  
+  res.send({paymentResult,deleteResult})
+})
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
