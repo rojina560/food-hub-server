@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+   "start": "kill -9 $(lsof -t -i:5001) 2>/dev/null; node index.js",
+  "dev": "kill -9 $(lsof -t -i:5001) 2>/dev/null; nodemon index.js"
   },
   "keywords": [],
   "author": "",
