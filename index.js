@@ -112,7 +112,7 @@ async function run() {
 
     })
     
-    app.get('/reveiws', verifyToken,verifyAdmin,async(req,res)=>{
+    app.get('/reveiws',async(req,res)=>{
         const result = await reveiwCollection.find().toArray()
         res.send(result)
     })
