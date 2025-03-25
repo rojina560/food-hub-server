@@ -188,7 +188,8 @@ async function run() {
     // stripe payment intent
 app.post('/create-payment-intent', async(req,res) =>{
   const {price} = req.body;
-  const amount = parseInt(price * 100);
+  console.log("Received price:", price);
+  const amount = Math.round(price * 100);
   console.log(amount,'amount inside the intent');
   const paymentIntent = await stripe.paymentIntents.create({
     amount: amount,
@@ -235,6 +236,52 @@ app.get('/admin-stats', verifyToken, verifyAdmin,async(req,res)=>{
   res.send({
     users,menuItems,orders,revenue
   })
+})
+ 
+/**
+ * ----------------------------
+ *   non- efficient way
+ * ----------------------------
+ * 1.load all the payments 
+ * 2.for every menuItemIds ( which is an array), go find the item from menu collection
+ * 3. for every item in the menu collection that you found from a payment entry(document)
+ */
+ 
+// using aggregate pipeline
+app.get('/order-stats', verifyToken,verifyAdmin, async(req,res)=>{
+  const result = await paymentsCollection.aggregate([
+    {
+      $unwind: '$menuItemIds'
+    },
+    {
+      $lookup:{
+        from: 'menu',
+        localField: 'menuItemIds',
+        foreignField: '_id',
+        as: 'menuItems'
+      }
+    },
+    {
+      $unwind: '$menuItems'
+    },
+    {
+      $group: {
+        _id: '$menuItems.category',
+        quantity:{$sum: 1},
+        revenue: {$sum: '$menuItems.price'}
+      }
+    },
+    {
+      $project:{
+        _id: 0 ,
+        category:'$_id',
+        quantity: '$quantity',
+        revenue: '$revenue'
+      }
+    }
+    
+  ]).toArray();
+  res.send(result)
 })
 
     // Send a ping to confirm a successful connection
